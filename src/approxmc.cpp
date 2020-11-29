@@ -51,6 +51,8 @@ DLL_PUBLIC AppMC::AppMC()
     data->counter.solver->set_up_for_scalmc();
     data->counter.solver->set_allow_otf_gauss();
     data->counter.solver->set_xor_detach(data->conf.cms_detach_xor);
+    data->counter.solver->set_num_threads(4);
+
 }
 
 DLL_PUBLIC AppMC::~AppMC()

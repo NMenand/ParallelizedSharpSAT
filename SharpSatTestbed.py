@@ -10,6 +10,8 @@ import random
 
 import psutil, os
 
+import matplotlib.pyplot as plt
+
 from functools import *
 from operator import *
 
@@ -59,7 +61,7 @@ def optimize_params_list(cnf_path_list):
 
     return optimized_params
 
-def create_portfolios(max_portfolio_size, cnf_path_list, params_list, param_times_dict):
+def create_portfolios(max_portfolio_size, cnf_path_list, params_list, param_times_dict, default_times_dict):
     cnf_list = [os.path.basename(cnf_path) for cnf_path in cnf_path_list]
 
     portfolio_dict = {}
@@ -69,9 +71,11 @@ def create_portfolios(max_portfolio_size, cnf_path_list, params_list, param_time
 
         best_portfolio = []
         best_sum_time = float("inf")
+        best_average_speedup = 1
 
         for current_portfolio in portfolio_combinations:
             current_sum_time = 0
+            current_average_speedup = 1
 
             for cnf in cnf_list:
                 best_cnf_time = float("inf")
@@ -80,21 +84,24 @@ def create_portfolios(max_portfolio_size, cnf_path_list, params_list, param_time
                     best_cnf_time = min(param_times_dict[(cnf, params)], best_cnf_time)
 
                 current_sum_time += best_cnf_time
+                current_average_speedup *= default_times_dict[cnf]/best_cnf_time
 
             if current_sum_time < best_sum_time:
                 best_sum_time = current_sum_time
                 best_portfolio = current_portfolio
+                best_average_speedup = math.pow(current_average_speedup, 1./len(cnf_list))
 
         if __VERBOSE__:
             print("Best Portfolio of size " + str(portfolio_size) + ":")
             print("Total Theoretical Time (" + str(best_sum_time) + "s)")
+            print("Average Speedup (" + str(best_average_speedup) + "x)")
 
             for params in best_portfolio:
                 print(params)
 
             print()
 
-        portfolio_dict[portfolio_size] = (best_portfolio, best_sum_time)
+        portfolio_dict[portfolio_size] = (best_portfolio, best_sum_time, best_average_speedup)
 
     return portfolio_dict
 
@@ -399,7 +406,7 @@ if __name__ == '__main__':
         portfolios_dict = pickle.load(open(__PORTFOLIOS_PICKLE__, 'rb'))
     else:
         print("Calculating optimal portfolios ...\n")
-        portfolios_dict = create_portfolios(__MAX_PORTFOLIO_SIZE__, train_benchmark_list, condensed_params, param_times_dict)
+        portfolios_dict = create_portfolios(__MAX_PORTFOLIO_SIZE__, train_benchmark_list, condensed_params, param_times_dict, default_times_dict)
         print()
 
 
@@ -480,18 +487,20 @@ if __name__ == '__main__':
             cnf = os.path.basename(cnf_path)
             individual_speedup = default_times_dict[cnf]/portfolio_metrics[(cnf, portfolio_size)]
             train_average_actual_speedup *= individual_speedup
-        train_average_actual_speedup = math.pow(train_average_actual_speedup, 1/len(train_benchmark_list))
+        train_average_actual_speedup = math.pow(train_average_actual_speedup, 1./len(test_benchmark_list))
 
         test_average_actual_speedup = 1
         for cnf_path in test_benchmark_list:
             cnf = os.path.basename(cnf_path)
             individual_speedup = default_times_dict[cnf]/portfolio_metrics[(cnf, portfolio_size)]
             test_average_actual_speedup *= individual_speedup
-        test_average_actual_speedup = math.pow(test_average_actual_speedup, 1/len(test_benchmark_list))
+        test_average_actual_speedup = math.pow(test_average_actual_speedup, 1./len(test_benchmark_list))
 
         print("Actual Total Time on Training CNFs: (" + str(training_default_sum_time) + "s) -> (" + str(train_total_actual_time) + "s)")
 
         print("Theoretical Total Train Speedup: " + str((portfolio_data[1]/training_default_sum_time)**-1))
+        print("Theoretical Average Train Speedup: " + str(portfolio_data[2]))
+
         print("Actual Total Train Speedup: " + str((train_total_actual_time/training_default_sum_time)**-1))
         print("Actual Average Train Speedup: " + str(train_average_actual_speedup))
 
@@ -506,4 +515,66 @@ if __name__ == '__main__':
         print()
 
     print()
+
+    #Cactus plot graphing
+    line_artist = ['r--', 'b--', 'g--', 'y--']
+
+    train_default_times_points = [default_times_dict[os.path.basename(cnf_path)] for cnf_path in train_benchmark_list]
+    train_default_times_points.sort()
+
+    num_benchmarks = range(1,len(train_default_times_points)+1)
+
+    train_points = [train_default_times_points]
+
+    for portfolio_size in range(1, __MAX_PORTFOLIO_SIZE__+1):
+        portfolio_points = []
+        for cnf_path in train_benchmark_list:
+            cnf = os.path.basename(cnf_path)
+            portfolio_points.append(portfolio_metrics[(cnf, portfolio_size)])
+        portfolio_points.sort()
+        train_points.append(portfolio_points)
+
+    plt.plot(num_benchmarks, train_points[0], 'k--', label = "Default Parameters")
+
+    for portfolio_size in range(0, __MAX_PORTFOLIO_SIZE__):
+        plt.plot(num_benchmarks, train_points[portfolio_size+1], line_artist[portfolio_size], label = ("Portfolio Size " + str(portfolio_size + 1)))
+
+    plt.legend()
+
+    plt.xlabel('# Solved Benchmarks')
+    plt.ylabel('CPU Time (s)')
+
+    plt.savefig('plots/train_cactus_plot.png')
+
+    plt.clf()
+
+
+    test_default_times_points = [default_times_dict[os.path.basename(cnf_path)] for cnf_path in test_benchmark_list]
+    test_default_times_points.sort()
+
+    num_benchmarks = range(1,len(test_default_times_points)+1)
+
+    test_points = [test_default_times_points]
+
+    for portfolio_size in range(1, __MAX_PORTFOLIO_SIZE__+1):
+        portfolio_points = []
+        for cnf_path in test_benchmark_list:
+            cnf = os.path.basename(cnf_path)
+            portfolio_points.append(portfolio_metrics[(cnf, portfolio_size)])
+        portfolio_points.sort()
+        test_points.append(portfolio_points)
+
+    plt.plot(num_benchmarks, test_points[0], 'k--', label = "Default Parameters")
+
+    for portfolio_size in range(0, __MAX_PORTFOLIO_SIZE__):
+        plt.plot(num_benchmarks, test_points[portfolio_size+1], line_artist[portfolio_size], label = ("Portfolio Size " + str(portfolio_size + 1)))
+
+    plt.legend()
+
+    plt.xlabel('# Solved Benchmarks')
+    plt.ylabel('CPU Time (s)')
+
+    plt.savefig('plots/test_cactus_plot.png')
+
+    plt.clf()
 
